@@ -2,19 +2,174 @@
 
 
 ## Loading and preprocessing the data
+1. The data file is downloaded 
+2. Unzip and read as a data frame.
+3. The interval column is converted to factor type.
+4. The date column is converted to Date type.
 
+```{r reading_data, echo=TRUE, comment=F}
+library(ggplot2) # I'm going to practice ggplot2
+# download and read the data, convert columns for convenience
+fname = "activity.zip"
+source_url = "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+download.file(source_url, destfile=fname)
+# I don't know why this error ocurr. Locally in RStudio works.
+con <- unz(fname, "activity.csv")
+tbl <- read.csv(con, header=T, colClasses=c("numeric", "character", "numeric"))
+tbl$interval <- factor(tbl$interval)
+tbl$date <- as.Date(tbl$date, format="%Y-%m-%d")
+# if you want to see before analize
+head(tbl) 
+summary(tbl)
+str(tbl)
+```
 
 
 ## What is mean total number of steps taken per day?
 
+Below is a histogram of the daily total number of steps, plotted with a bin interval of 1500 steps. Also the mean and median.
+
+```{r steps_per_day, echo=TRUE}
+    steps_per_day <- aggregate(steps ~ date, tbl, sum)
+    colnames(steps_per_day) <- c("date", "steps")
+mean_steps = round(mean(steps_per_day$steps), 2)
+median_steps = round(median(steps_per_day$steps), 2)
+col_labels=c(paste("Mean:", mean_steps), paste("Median:", median_steps))
+col_labels
+cols = c("green", "yellow")
+    ggplot(steps_per_day, aes(x=steps)) + 
+        geom_histogram(fill="steelblue", binwidth=1500) + 
+        geom_point(aes(x=mean_steps, y=0, color="green"), size=4, shape=15) + 
+        geom_point(aes(x=median_steps, y=0, color="yellow"), size=4, shape=15) + 
+        scale_color_manual(name=element_blank(), labels=col_labels, values=cols) + 
+        labs(title="Histogram of Steps Taken per Day", x="Number of Steps", y="Count") + 
+        theme_bw() + theme(legend.position = "bottom")    
+```
+
+**Summary:**
+- *`r paste("Mean:", mean_steps)`*
+- *`r paste("Median:", median_steps)`*
 
 
 ## What is the average daily activity pattern?
+```{r steps_per_interval, echo=TRUE}
 
+steps_pi <- aggregate(tbl$steps, by=list(interval=tbl$interval),
+                          FUN=mean, na.rm=T)
+    # convert to integers for plotting
+    steps_pi$interval <- as.integer(levels(steps_pi$interval)[steps_pi$interval])
+    colnames(steps_pi) <- c("interval", "steps")
+steps_per_interval <- steps_pi
+max_step_interval <- steps_per_interval[which.max(steps_per_interval$steps),]$interval
+col_labels=c(paste("Interval with Maximum Activity: ", max_step_interval))
+cols = c("red")
+    
+a<-    ggplot(steps_per_interval, aes(x=interval, y=steps)) +   
+        geom_line(color="steelblue", size=1) +  
+        geom_point(aes(x=max_step_interval, y=0, color="red"), size=4, shape=15) +  
+        scale_color_manual(name=element_blank(), labels=col_labels, values=cols) +     
+        labs(title="Average Daily Activity Pattern", x="Interval", y="Number of steps") +  
+        theme_bw() + theme(legend.position = "bottom")
+a
+
+```
+
+The **`r max_step_interval`<sup>th</sup> interval** has the maximum activity on the average.
 
 
 ## Imputing missing values
 
+To populate missing values, we choose to replace them with the mean value at the same interval across days. The choice is based on the assumption that activities usually follow a daily pattern.
 
+
+```{r impute_data, echo=TRUE}
+
+    na_indices <- which(is.na(tbl$steps))
+    defaults <- steps_per_interval
+    na_replacements <- unlist(lapply(na_indices, FUN=function(idx){
+        interval = tbl[idx,]$interval
+        defaults[defaults$interval == interval,]$steps
+        }))
+    imp_steps <- tbl$steps
+    imp_steps[na_indices] <- na_replacements
+
+complete_tbl <- data.frame(  
+    steps = imp_steps,  
+    date = tbl$date,  
+    interval = tbl$interval)
+```
+
+Summarizing the new dataset with imputed values:
+```{r impute_summary, echo=TRUE}
+summary(complete_tbl)
+```
+
+With the imputed dataset, below is a histogram of the daily total number of steps taken, plotted with a bin interval of 1500 steps. Also marked on the plot are the mean and median of the daily total steps.
+
+```{r complete_steps_per_day, echo=TRUE}
+#complete_steps_per_day <- calc_steps_per_day(complete_tbl)
+complete_steps_per_day <- aggregate(steps ~ date, complete_tbl, sum)
+colnames(complete_steps_per_day) <- c("date", "steps")
+
+complete_mean_steps = round(mean(complete_steps_per_day$steps), 2)
+complete_median_steps = round(median(complete_steps_per_day$steps), 2)
+#plot_steps_per_day(complete_steps_per_day, complete_mean_steps, complete_median_steps)
+col_labels=c(paste("Mean:", complete_mean_steps), paste("Median:", complete_median_steps))
+    cols = c("green", "yellow")
+    
+    ggplot(complete_steps_per_day, aes(x=steps)) + 
+        geom_histogram(fill="steelblue", binwidth=1500) + 
+        geom_point(aes(x=mean_steps, y=0, color="green"), size=4, shape=15) + 
+        geom_point(aes(x=median_steps, y=0, color="yellow"), size=4, shape=15) + 
+        scale_color_manual(name=element_blank(), labels=col_labels, values=cols) + 
+        labs(title="Histogram of Steps Taken per Day", x="Number of Steps", y="Count") + 
+        theme_bw() + theme(legend.position = "bottom")    
+
+```
+
+Comparing with the calculations with the first result, mean value remains unchanghed, the median value has shifted closer to the mean.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r weekday_compare, echo=TRUE}
+calc_steps_per_interval <- function(tbl) {
+    steps_pi <- aggregate(tbl$steps, by=list(interval=tbl$interval),
+                          FUN=mean, na.rm=T)
+    # convert to integers for plotting
+    steps_pi$interval <- as.integer(levels(steps_pi$interval)[steps_pi$interval])
+    colnames(steps_pi) <- c("interval", "steps")
+    steps_pi
+}
+complete_tbl$weekday <- as.factor(weekdays(complete_tbl$date))
+weekend_data <- subset(complete_tbl, weekday %in% c("sábado","domingo"))
+weekday_data <- subset(complete_tbl, !weekday %in% c("sábado","domingo"))
+
+weekend_spi <- aggregate(weekend_data$steps, by=list(weekend_data$interval),  FUN=mean, na.rm=T)
+head(weekend_spi)
+colnames(weekend_spi) <- c("interval", "steps")
+weekend_spi$interval <- as.integer(levels(weekend_spi$interval)[weekend_spi$interval])
+
+weekday_spi <- aggregate(weekday_data$steps, by=list(weekday_data$interval),  FUN=mean, na.rm=T)
+
+colnames(weekday_spi) <- c("interval", "steps")
+weekday_spi$interval <- as.integer(levels(weekday_spi$interval)[weekday_spi$interval])
+
+
+weekend_spi$dayofweek <- rep("weekend", nrow(weekend_spi))
+weekday_spi$dayofweek <- rep("weekday", nrow(weekday_spi))
+day_of_week_data <- rbind(weekend_spi, weekday_spi)
+day_of_week_data$dayofweek <- as.factor(day_of_week_data$dayofweek)
+
+plot_day_of_week_comparison <- function(dow_data) {
+    ggplot(dow_data, 
+        aes(x=interval, y=steps)) + 
+        geom_line(color="steelblue", size=1) + 
+        facet_wrap(~ dayofweek, nrow=2, ncol=1) +
+        labs(x="Interval", y="Number of steps") +
+        theme_bw()
+}
+plot_day_of_week_comparison(day_of_week_data)
+```
+
+
+We note that activity on the weekends tends to be more spread out over the day compared to the weekdays. This could be because we have more freedom in weekend than weekday.
